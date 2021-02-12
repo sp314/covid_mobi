@@ -1,0 +1,52 @@
+---
+title: "Mobility Before and After COVID-19"
+author: Juthi Dewan, Son Phan
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(sf)
+library(lubridate)
+
+theme_map <- theme_void()
+
+taxi_zones <- st_read("shp/taxi_zones.shp")
+load(file = "data/rides_20_h1.RData")
+
+rides_20_h1clean <- rides_20_h1 %>%
+	mutate(year = year(tpep_dropoff_datetime),
+				 month = month(tpep_dropoff_datetime),
+				 week = week(tpep_dropoff_datetime),
+				 day = yday(tpep_dropoff_datetime), 
+				 weekday = weekdays(tpep_dropoff_datetime)) %>%
+	filter(month <= 6)
+```
+
+```{r}
+taxi_zones %>%
+	ggplot() +
+	geom_sf() +
+	theme_map
+```
+
+```{r}
+rides_20_h1clean %>%
+	count(day) %>%
+	ggplot() +
+	geom_line(mapping = aes(x = day, y = n))
+```
+
+```{r}
+# Seems to be outliers in Manhattan obviously
+rides_20_h1clean %>%
+	count(DOLocationID) %>%
+	left_join(x = ., y = taxi_zones, by = c("DOLocationID" = "LocationID")) %>%
+	ggplot() +
+	geom_sf(mapping = aes(fill = n, geometry = geometry)) +
+	theme_map +
+	scale_fill_viridis_c() +
+	theme(legend.position="bottom") + 
+	guides(fill = guide_colourbar(barwidth = 20))
+```
+
