@@ -9,19 +9,44 @@ output: html_notebook
 library(tidyverse)
 library(sf)
 library(lubridate)
+library(survminer)
+library(survival)
 
 theme_map <- theme_void()
 
-taxi_zones <- st_read("shp/taxi_zones.shp")
-load(file = "data/rides_20_h1.RData")
+taxi_zones <- st_read("../shp/taxi_zones.shp")
+load(file = "../data/rides_20_h1.RData")
+load("~/Desktop/school/math453/covid_mobi/data/rides_19_q1.RData")
+load("~/Desktop/school/math453/covid_mobi/data/rides_19_q2.RData")
 
 rides_20_h1clean <- rides_20_h1 %>%
 	mutate(year = year(tpep_dropoff_datetime),
 				 month = month(tpep_dropoff_datetime),
 				 week = week(tpep_dropoff_datetime),
 				 day = yday(tpep_dropoff_datetime), 
+				 weekday = weekdays(tpep_dropoff_datetime),
+				 weekend = weekday %in% c("Saturday", "Sunday")) %>%
+	filter(month <= 6)
+
+rides_19_q1_sample <- rides_19_q1 %>%
+	sample_n(size = 7000000) %>%
+	mutate(year = year(tpep_dropoff_datetime),
+				 month = month(tpep_dropoff_datetime),
+				 week = week(tpep_dropoff_datetime),
+				 day = yday(tpep_dropoff_datetime), 
 				 weekday = weekdays(tpep_dropoff_datetime)) %>%
 	filter(month <= 6)
+
+rides_19_q2_sample <- rides_19_q2 %>%
+	sample_n(size = 7000000) %>%
+	mutate(year = year(tpep_dropoff_datetime),
+				 month = month(tpep_dropoff_datetime),
+				 week = week(tpep_dropoff_datetime),
+				 day = yday(tpep_dropoff_datetime), 
+				 weekday = weekdays(tpep_dropoff_datetime)) %>%
+	filter(month <= 6)
+
+rides_19_h1_sample <- bind_rows(rides_19_q1_sample, rides_19_q2_sample)
 ```
 
 ```{r}
@@ -30,24 +55,65 @@ taxi_zones %>%
 	geom_sf() +
 	theme_map
 ```
-
 ```{r}
 rides_20_h1clean %>%
-	count(day) %>%
+	group_by(day) %>%
+	summarise(
+		n = group_size(.),
+		total_rides = nrow(rides_20_h1clean),
+		ride_proportion = n/total_rides) %>%
 	ggplot() +
-	geom_line(mapping = aes(x = day, y = n))
+	geom_line(mapping = aes(x = day, y = ride_proportion, color=weekend))
+```
+
+```{r}
+ride_ct_weeks_20 <- rides_20_h1clean %>%
+	count(day) %>%
+	mutate(total_rides = nrow(rides_20_h1clean),
+				 ride_proportion = n/total_rides)
+
+ride_ct_weeks_19 <- rides_19_h1_sample %>%
+	count(day) %>%
+	mutate(total_rides = nrow(rides_19_h1_sample),
+				 ride_proportion = n/total_rides)
+
+ggplot() +
+	geom_line(data = ride_ct_weeks_20, mapping = aes(x = day, y = ride_proportion, color="2020")) + 
+	geom_line(data = ride_ct_weeks_19, mapping = aes(x = day, y = ride_proportion, color="2019"))
 ```
 
 ```{r}
 # Seems to be outliers in Manhattan obviously
 rides_20_h1clean %>%
-	count(DOLocationID) %>%
-	left_join(x = ., y = taxi_zones, by = c("DOLocationID" = "LocationID")) %>%
-	ggplot() +
-	geom_sf(mapping = aes(fill = n, geometry = geometry)) +
+	filter(DOLocationID == 230, PULocationID != 230) %>%
+	count(PULocationID) %>%
+	mutate(total_rides = sum(n),
+				 ride_proportion = n/total_rides) %>%
+	left_join(x = ., y = taxi_zones, by = c("PULocationID" = "LocationID")) %>%
+	ggplot(mapping = aes(geometry = geometry)) +
+	geom_sf(mapping = aes(fill = ride_proportion)) + geom_sf_text(aes(label = PULocationID), colour = "white") +
 	theme_map +
 	scale_fill_viridis_c() +
 	theme(legend.position="bottom") + 
 	guides(fill = guide_colourbar(barwidth = 20))
 ```
 
+```{r}
+rides_20_h1clean %>%
+	filter(DOLocationID == 230) %>%
+	count(PULocationID) %>%
+	mutate(total_rides = sum(n),
+				 ride_proportion = n/total_rides)
+
+```
+
+## Model notes
+* model ride times
+* control distance
+* airport label
+* weekday seasonality
+* 1, 132, 138 are airports (control?)
+* variation around outer ring
+* are ride times dictated by lockdown requirements
+* focus on a single route
+* year:month interaction
