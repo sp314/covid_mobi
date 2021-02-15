@@ -1,11 +1,12 @@
 ---
 title: "Mobility Before and After COVID-19"
-author: Juthi Dewan, Son Phan
-output: html_notebook
+author: "Juthi Dewan, Son Phan"
+output:
+  html_document:
+    df_print: paged
 ---
 
-```{r}
-#hello
+```{r setup, message=FALSE, warning=FALSE}
 library(tidyverse)
 library(sf)
 library(lubridate)
@@ -16,8 +17,8 @@ theme_map <- theme_void()
 
 taxi_zones <- st_read("../shp/taxi_zones.shp")
 load(file = "../data/rides_20_h1.RData")
-load("~/Desktop/school/math453/covid_mobi/data/rides_19_q1.RData")
-load("~/Desktop/school/math453/covid_mobi/data/rides_19_q2.RData")
+load("../data/rides_19_q1.RData")
+load("../data/rides_19_q2.RData")
 
 rides_20_h1clean <- rides_20_h1 %>%
 	mutate(year = year(tpep_dropoff_datetime),
@@ -55,16 +56,6 @@ taxi_zones %>%
 	geom_sf() +
 	theme_map
 ```
-```{r}
-rides_20_h1clean %>%
-	group_by(day) %>%
-	summarise(
-		n = group_size(.),
-		total_rides = nrow(rides_20_h1clean),
-		ride_proportion = n/total_rides) %>%
-	ggplot() +
-	geom_line(mapping = aes(x = day, y = ride_proportion, color=weekend))
-```
 
 ```{r}
 ride_ct_weeks_20 <- rides_20_h1clean %>%
@@ -91,7 +82,7 @@ rides_20_h1clean %>%
 				 ride_proportion = n/total_rides) %>%
 	left_join(x = ., y = taxi_zones, by = c("PULocationID" = "LocationID")) %>%
 	ggplot(mapping = aes(geometry = geometry)) +
-	geom_sf(mapping = aes(fill = ride_proportion)) + geom_sf_text(aes(label = PULocationID), colour = "white") +
+	geom_sf(mapping = aes(fill = ride_proportion)) + 
 	theme_map +
 	scale_fill_viridis_c() +
 	theme(legend.position="bottom") + 
