@@ -108,3 +108,5 @@ rides_20_h1clean %>%
 * are ride times dictated by lockdown requirements
 * focus on a single route
 * year:month interaction
+* kaplan meier where strata by pickup zone
+* in general from same origin to same destination, do trips get faster from A to B across 2020? What about compared to 2019?
