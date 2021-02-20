@@ -12,6 +12,7 @@ library(sf)
 library(lubridate)
 library(survminer)
 library(survival)
+library(dplyr)
 
 theme_map <- theme_void()
 
@@ -19,6 +20,9 @@ taxi_zones <- st_read("../shp/taxi_zones.shp")
 load(file = "../data/rides_20_h1.RData")
 load("../data/rides_19_q1.RData")
 load("../data/rides_19_q2.RData")
+load("../data/rides_19_q3.RData")
+load("../data/rides_19_q4.RData")
+
 
 rides_20_h1clean <- rides_20_h1 %>%
 	mutate(year = year(tpep_dropoff_datetime),
@@ -35,7 +39,9 @@ rides_19_q1_sample <- rides_19_q1 %>%
 				 month = month(tpep_dropoff_datetime),
 				 week = week(tpep_dropoff_datetime),
 				 day = yday(tpep_dropoff_datetime), 
-				 weekday = weekdays(tpep_dropoff_datetime)) %>%
+				 weekday = weekdays(tpep_dropoff_datetime),
+				 weekend = weekday %in% c("Saturday", "Sunday")) %>%
+  
 	filter(month <= 6)
 
 rides_19_q2_sample <- rides_19_q2 %>%
@@ -44,10 +50,32 @@ rides_19_q2_sample <- rides_19_q2 %>%
 				 month = month(tpep_dropoff_datetime),
 				 week = week(tpep_dropoff_datetime),
 				 day = yday(tpep_dropoff_datetime), 
-				 weekday = weekdays(tpep_dropoff_datetime)) %>%
+				 weekday = weekdays(tpep_dropoff_datetime),
+				 weekend = weekday %in% c("Saturday", "Sunday")) %>%
 	filter(month <= 6)
 
+rides_19_q3_sample <- rides_19_q3 %>%
+	sample_n(size = 7000000) %>%
+	mutate(year = year(tpep_dropoff_datetime),
+				 month = month(tpep_dropoff_datetime),
+				 week = week(tpep_dropoff_datetime),
+				 day = yday(tpep_dropoff_datetime), 
+				 weekday = weekdays(tpep_dropoff_datetime),
+				 weekend = weekday %in% c("Saturday", "Sunday")) %>%
+	filter(month <= 12)
+
+rides_19_q4_sample <- rides_19_q4 %>%
+	sample_n(size = 7000000) %>%
+	mutate(year = year(tpep_dropoff_datetime),
+				 month = month(tpep_dropoff_datetime),
+				 week = week(tpep_dropoff_datetime),
+				 day = yday(tpep_dropoff_datetime), 
+				 weekday = weekdays(tpep_dropoff_datetime),
+				 weekend = weekday %in% c("Saturday", "Sunday")) %>%
+	filter(month <= 12)
+
 rides_19_h1_sample <- bind_rows(rides_19_q1_sample, rides_19_q2_sample)
+rides_19_h2_sample <- bind_rows(rides_19_q3_sample, rides_19_q4_sample)
 ```
 
 ```{r}
@@ -110,3 +138,99 @@ rides_20_h1clean %>%
 * year:month interaction
 * kaplan meier where strata by pickup zone
 * in general from same origin to same destination, do trips get faster from A to B across 2020? What about compared to 2019?
+
+
+```{r}
+#2020 trip duration in mins
+Duration_2020 <-
+  rides_20_h1clean%>%
+  mutate(Pickup = tpep_pickup_datetime,Dropoff = tpep_dropoff_datetime) %>%
+  select(-c(tpep_pickup_datetime, tpep_dropoff_datetime)) %>%
+  mutate(Duration = difftime(Dropoff, Pickup, units = "mins"))
+
+#2019 trip duration in mins
+Duration_2019h1 <-
+  rides_19_h1_sample%>%
+  mutate(Pickup = tpep_pickup_datetime,Dropoff = tpep_dropoff_datetime) %>%
+  select(-c(tpep_pickup_datetime, tpep_dropoff_datetime)) %>%
+  mutate(Duration = difftime(Dropoff, Pickup, units = "mins"))
+
+Duration_2019h2 <-
+  rides_19_h2_sample%>%
+  mutate(Pickup = tpep_pickup_datetime,Dropoff = tpep_dropoff_datetime) %>%
+  select(-c(tpep_pickup_datetime, tpep_dropoff_datetime)) %>%
+  mutate(Duration = difftime(Dropoff, Pickup, units = "mins"))
+```
+
+
+```{r}
+sample_2020<- Duration_2020 %>%
+	sample_n(size = 10000) 
+
+sample_2019h1<- Duration_2019h1 %>%
+	sample_n(size = 10000) 
+
+sample_2019h2<- Duration_2019h2 %>%
+	sample_n(size = 10000) 
+```
+
+```{r}
+#weekly trip duration mean
+weeklyAvg20 <-
+  sample_2020 %>%
+  group_by(week) %>%
+  mutate(weeklyAvg = mean(Duration))
+
+weeklyAvg19h1 <-
+  sample_2019h1 %>%
+  group_by(week) %>%
+  mutate(weeklyAvg = mean(Duration))
+```
+
+```{r}
+#trip duration by week in 2020 vs 2019
+ggplot() +
+	geom_line(data = weeklyAvg20, mapping = aes(x = week, y = weeklyAvg, color="2020")) + 
+	geom_line(data = weeklyAvg19h1, mapping = aes(x = week, y = weeklyAvg, color="2019"))
+```
+
+```{r}
+#IGNORE THIS
+#trip duration mean by distance
+dur_dist_20 <-
+  sample_2020 %>%
+  group_by(trip_distance) %>%
+  mutate(mean_dur = mean(Duration))
+
+dur_dist_19h1 <-
+  sample_2019h1 %>%
+  group_by(trip_distance) %>%
+  mutate(mean_dur = mean(Duration))
+
+# trip distance and duration
+ggplot() +
+	geom_line(data = dur_dist_20, mapping = aes(x = trip_distance, y = mean_dur, color="2020")) + 
+	geom_line(data = dur_dist_19h1, mapping = aes(x = trip_distance, y = mean_dur, color="2019"))
+```
+
+
+
+```{r}
+KM2020 = survfit( Surv(Duration) ~ month , data=sample_2020, )
+KM2019 = survfit( Surv(Duration) ~ month , data=sample_2019h1)
+
+plot(KM2019, xlim=c(0,6), ylim=c(0.55,1), col=1:6)
+plot(KM2020, xlim=c(0,6), ylim=c(0.55,1), col=1:6)
+```
+
+```{r}
+#lm to see the relationship between distance and duration in 2019 vs 2020
+lm( Duration ~ trip_distance, data=sample_2020)
+lm( Duration ~ trip_distance, data=sample_2019h1)
+```
+
+
+
+
+
+
