@@ -6,13 +6,12 @@ output:
     df_print: paged
 ---
 
-```{r setup, message=FALSE, warning=FALSE}
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
 library(tidyverse)
 library(sf)
 library(lubridate)
 library(survminer)
 library(survival)
-library(ggpubr)
 
 theme_map <- theme_void()
 
@@ -20,6 +19,9 @@ taxi_zones <- st_read("../shp/taxi_zones.shp")
 load(file = "../data/rides_20_h1.RData")
 load("../data/rides_19_q1.RData")
 load("../data/rides_19_q2.RData")
+load("../data/rides_19_q3.RData")
+load("../data/rides_19_q4.RData")
+
 
 rides_20_h1clean <- rides_20_h1 %>%
 	mutate(year = year(tpep_dropoff_datetime),
@@ -40,6 +42,7 @@ rides_19_q1_sample <- rides_19_q1 %>%
 				 day = yday(tpep_dropoff_datetime), 
 				 weekday = weekdays(tpep_dropoff_datetime),
 				 trip_time = as.numeric(tpep_dropoff_datetime - tpep_pickup_datetime),
+				 weekend = weekday %in% c("Saturday", "Sunday"),
 				 speed = trip_distance/trip_time) %>%
 	filter(month <= 6, trip_time > 0)
 
@@ -51,10 +54,36 @@ rides_19_q2_sample <- rides_19_q2 %>%
 				 day = yday(tpep_dropoff_datetime), 
 				 weekday = weekdays(tpep_dropoff_datetime),
 				 trip_time = as.numeric(tpep_dropoff_datetime - tpep_pickup_datetime),
+				 weekend = weekday %in% c("Saturday", "Sunday"),
 				 speed = trip_distance/trip_time) %>%
 	filter(month <= 6, trip_time > 0)
 
+rides_19_q3_sample <- rides_19_q3 %>%
+	sample_n(size = 7000000) %>%
+	mutate(year = year(tpep_dropoff_datetime),
+				 month = month(tpep_dropoff_datetime),
+				 week = week(tpep_dropoff_datetime),
+				 day = yday(tpep_dropoff_datetime), 
+				 weekday = weekdays(tpep_dropoff_datetime),
+				 trip_time = as.numeric(tpep_dropoff_datetime - tpep_pickup_datetime),
+				 weekend = weekday %in% c("Saturday", "Sunday"),
+				 speed = trip_distance/trip_time) %>%
+	filter(month <= 12, trip_time > 0)
+
+rides_19_q4_sample <- rides_19_q4 %>%
+	sample_n(size = 7000000) %>%
+	mutate(year = year(tpep_dropoff_datetime),
+				 month = month(tpep_dropoff_datetime),
+				 week = week(tpep_dropoff_datetime),
+				 day = yday(tpep_dropoff_datetime), 
+				 weekday = weekdays(tpep_dropoff_datetime),
+				 trip_time = as.numeric(tpep_dropoff_datetime - tpep_pickup_datetime),
+				 weekend = weekday %in% c("Saturday", "Sunday"),
+				 speed = trip_distance/trip_time) %>%
+	filter(month <= 12, trip_time > 0)
+
 rides_19_h1_sample <- bind_rows(rides_19_q1_sample, rides_19_q2_sample)
+rides_19_h2_sample <- bind_rows(rides_19_q3_sample, rides_19_q4_sample)
 ```
 
 ## Distribution of rides over time
@@ -69,13 +98,13 @@ ride_ct_weeks_19 <- rides_19_h1_sample %>%
 	mutate(total_rides = nrow(rides_19_h1_sample),
 				 ride_proportion = n/total_rides)
 
-
 ggplot() +
 	geom_line(data = ride_ct_weeks_20, mapping = aes(x = day, y = ride_proportion, color="2020")) + 
 	geom_line(data = ride_ct_weeks_19, mapping = aes(x = day, y = ride_proportion, color="2019"))
 ```
 
-```{r}
+## Distribution of rides over space
+```{r, warning=FALSE}
 # Seems to be outliers in Manhattan obviously
 rides_20_h1clean %>%
 	filter(DOLocationID == 230) %>%
@@ -89,23 +118,32 @@ rides_20_h1clean %>%
 	theme_map +
 	scale_fill_viridis_c() +
 	theme(legend.position="bottom") + 
-	guides(fill = guide_colourbar(barwidth = 20)) + ggtitle("Log n rides to Times Square")
+	guides(fill = guide_colourbar(barwidth = 20)) + ggtitle("2020 H1")
 ```
 
+## Comparing changes in trip_time between 2019 H1 and 2020 H1
+Only consider the top 50-ish origins amongst the 2 years. 
 ```{r}
-rides_20_h1clean %>%
+top_origins_20 = rides_20_h1clean %>%
 	filter(DOLocationID == 230) %>%
-	count(PULocationID) %>%
-	mutate(total_rides = sum(n),
-				 ride_proportion = n/total_rides)
+	count(PULocationID) %>% 
+  arrange(-n) %>%
+  filter(row_number() <= 50) %>% pull(PULocationID)
 
-```
+top_origins_19 = rides_19_h1_sample %>%
+	filter(DOLocationID == 230) %>%
+	count(PULocationID) %>% 
+  arrange(-n) %>%
+  filter(row_number() <= 50) %>% pull(PULocationID)
 
-```{r}
+top_origins = union(top_origins_20, top_origins_19)
+
 rides_20_h1_ts = rides_20_h1clean %>%
-	filter(DOLocationID == 230) %>%
+	filter(DOLocationID == 230,
+	       PULocationID %in% top_origins) %>%
   group_by(PULocationID) %>%
   summarise(
+    n_trips = n(),
     mean_trip_time = mean(trip_time),
     median_trip_time = median(trip_time),
     log_mean_trip_time = log(mean_trip_time),
@@ -115,7 +153,8 @@ rides_20_h1_ts = rides_20_h1clean %>%
   )
 
 rides_19_h1_ts = rides_19_h1_sample %>%
-	filter(DOLocationID == 230) %>%
+	filter(DOLocationID == 230,
+	       PULocationID %in% top_origins) %>%
   group_by(PULocationID) %>%
   summarise(
     mean_trip_time = mean(trip_time),
@@ -124,67 +163,23 @@ rides_19_h1_ts = rides_19_h1_sample %>%
     log_median_tripl_time = log(median_trip_time),
     mean_speed = mean(speed),
     median_speed = median(speed)
-  )
+  ) 
 
+rides_h1_ts_delta = left_join(x = rides_19_h1_ts, y = rides_20_h1_ts, by = c("PULocationID" = "PULocationID")) %>%
+  mutate(mean_trip_time_delta = mean_trip_time.y - mean_trip_time.x)
 
-trip_times_20 = rides_20_h1_ts %>%
+rides_h1_ts_delta %>%
+  filter(!(abs(mean_trip_time_delta - mean(mean_trip_time_delta)) > 2*sd(mean_trip_time_delta))) %>%
 	left_join(x = ., y = taxi_zones, by = c("PULocationID" = "LocationID")) %>%
 	ggplot(mapping = aes(geometry = geometry)) +
-	geom_sf(mapping = aes(fill = mean_trip_time)) + 
+	geom_sf(mapping = aes(fill = mean_trip_time_delta)) + 
 	theme_map +
 	scale_fill_viridis_c() +
 	theme(legend.position="bottom") + 
-	guides(fill = guide_colourbar(barwidth = 20)) + ggtitle("2020 Trip Times")
-
-trip_times_19 = rides_19_h1_ts %>%
-	left_join(x = ., y = taxi_zones, by = c("PULocationID" = "LocationID")) %>%
-	ggplot(mapping = aes(geometry = geometry)) +
-	geom_sf(mapping = aes(fill = mean_trip_time)) + 
-	theme_map +
-	scale_fill_viridis_c() +
-	theme(legend.position="bottom") + 
-	guides(fill = guide_colourbar(barwidth = 20)) + ggtitle("2019 Trip Times")
-
-ltrip_times_20 = rides_20_h1_ts %>%
-	left_join(x = ., y = taxi_zones, by = c("PULocationID" = "LocationID")) %>%
-	ggplot(mapping = aes(geometry = geometry)) +
-	geom_sf(mapping = aes(fill = log_mean_trip_time)) + 
-	theme_map +
-	scale_fill_viridis_c() +
-	theme(legend.position="bottom") + 
-	guides(fill = guide_colourbar(barwidth = 20)) + ggtitle("2020 Trip Times")
-
-ltrip_times_19 = rides_19_h1_ts %>%
-	left_join(x = ., y = taxi_zones, by = c("PULocationID" = "LocationID")) %>%
-	ggplot(mapping = aes(geometry = geometry)) +
-	geom_sf(mapping = aes(fill = log_mean_trip_time)) + 
-	theme_map +
-	scale_fill_viridis_c() +
-	theme(legend.position="bottom") + 
-	guides(fill = guide_colourbar(barwidth = 20)) + ggtitle("2019 Trip Times")
-
-speeds_20 = rides_20_h1_ts %>%
-	left_join(x = ., y = taxi_zones, by = c("PULocationID" = "LocationID")) %>%
-	ggplot(mapping = aes(geometry = geometry)) +
-	geom_sf(mapping = aes(fill = mean_speed)) + 
-	theme_map +
-	scale_fill_viridis_c() +
-	guides(fill = guide_colourbar(barwidth = 20)) + ggtitle("2020 Trip Speeds")
-
-speeds_19 = rides_19_h1_ts %>%
-	left_join(x = ., y = taxi_zones, by = c("PULocationID" = "LocationID")) %>%
-	ggplot(mapping = aes(geometry = geometry)) +
-	geom_sf(mapping = aes(fill = mean_speed)) + 
-	theme_map +
-	scale_fill_viridis_c() +
-	guides(fill = guide_colourbar(barwidth = 20)) + ggtitle("2019 Trip Speeds")
-
-ggarrange(trip_times_20, trip_times_19, ncol=2, nrow=1, common.legend = TRUE, legend="bottom")
-ggarrange(ltrip_times_20, ltrip_times_19, ncol=2, nrow=1, common.legend = TRUE, legend="bottom")
-ggarrange(speeds_20, speeds_19, ncol=2, nrow=1, common.legend = TRUE, legend="bottom")
+	guides(fill = guide_colourbar(barwidth = 20)) + ggtitle("2020 Minus 2019 Trip Times")
 ```
 
-## Model notes
+## Preliminary Model notes
 * model ride times
 * control distance
 * airport label
@@ -196,29 +191,147 @@ ggarrange(speeds_20, speeds_19, ncol=2, nrow=1, common.legend = TRUE, legend="bo
 * year:month interaction
 * kaplan meier where strata by pickup zone
 * in general from same origin to same destination, do trips get faster from A to B across 2020? What about compared to 2019?
+<<<<<<< HEAD
 * 2019/2020 from origin 230, single route, survfit; log-rank between 2019vs.2020
 * Surv(trip_time) ~ factor(PULocationID) + factor(PULocationID):year + year
 * by month in 2020
+* The farther pickup locations might have a bigger negative trip_time change. This is intuitive, how can we test this?
 
-
+## Simple Model - Just by Year
 ```{r}
-rides_20_h1sample <-rides_20_h1clean %>%
-  filter(DOLocationID == 230, PULocationID %in% common_routes)
+rides_20_h1_top_origins <- rides_20_h1clean %>%
+  filter(DOLocationID == 230, PULocationID %in% top_origins)
 
-rides_19_h1sample <- rides_19_h1_sample %>%
-  filter(DOLocationID == 230, PULocationID %in% common_routes)
+rides_19_h1_top_origins <- rides_19_h1_sample %>%
+  filter(DOLocationID == 230, PULocationID %in% top_origins)
 
-rides_h1sample = bind_rows(rides_20_h1sample, rides_19_h1sample) %>%
-  filter(year %in% c(2019, 2020))
+rides_h1_top_origins = bind_rows(rides_20_h1_top_origins, rides_19_h1_top_origins) %>%
+  filter(year %in% c(2019, 2020)) %>%
+  mutate(PULocationID = factor(PULocationID),
+         year = factor(year))
 
-trip_time_year_model = survreg(formula = Surv(trip_time) ~ factor(year)*factor(PULocationID), dist = "weibull", data = rides_h1sample)
-trip_time_year_model %>% summary()
+## Weibull
+trip_time_year_weibull = survreg(formula = Surv(trip_time) ~ factor(year), dist = "weibull", data = rides_h1_top_origins)
+trip_time_year_weibull %>% summary()
 
-ggplot(data=data.frame(x=c(0,5000)), aes(x=x)) +
-  stat_function( aes(color='2019'), fun=pweibull, args=list(shape=1/trip_time_year_model$scale , scale=exp(trip_time_year_model$coefficients[1] + 0*trip_time_year_model$coefficients[2]), lower.tail=FALSE )) +
-  stat_function( aes(color='2020'), fun=pweibull, args=list(shape=1/trip_time_year_model$scale , scale=exp(trip_time_year_model$coefficients[1] + 1*trip_time_year_model$coefficients[2]) , lower.tail=FALSE ) ) +
-  labs(y="Survival Proportion", x="Seconds")
+wei_19_trip_time_SC = function(x) pweibull(q = x, shape = 1/trip_time_year_weibull$scale, scale = exp(trip_time_year_weibull$coefficients[1] + trip_time_year_weibull$coefficients[2]*0), lower.tail = FALSE)
 
-exp(trip_time_year_model$coefficients[2])
+wei_20_trip_time_SC = function(x) pweibull(q = x, shape = 1/trip_time_year_weibull$scale, scale = exp(trip_time_year_weibull$coefficients[1] + trip_time_year_weibull$coefficients[2]*1), lower.tail = FALSE)
+
+## Log-normal
+trip_time_year_lnorm = survreg(formula = Surv(trip_time) ~ factor(year), dist = "lognormal", data = rides_h1_top_origins)
+trip_time_year_lnorm %>% summary()
+
+lnorm_19_trip_time_SC = function(x) plnorm(q = x, meanlog = trip_time_year_lnorm$coefficients[1] + trip_time_year_lnorm$coefficients[2]*0, sdlog = trip_time_year_lnorm$scale, lower.tail = FALSE)
+
+lnorm_20_trip_time_SC = function(x) plnorm(q = x, meanlog = trip_time_year_lnorm$coefficients[1] + trip_time_year_lnorm$coefficients[2]*1, sdlog = trip_time_year_lnorm$scale, lower.tail = FALSE)
+
+## Cox PH
+trip_time_year_coxPH = coxph(formula = Surv(trip_time) ~ factor(year), data = rides_h1_top_origins)
+trip_time_year_coxPH %>% summary()
+
+plot(survfit(trip_time_year_coxPH, newdata = data.frame(year = c("2019" , "2020"))), xlab = "Seconds", ylab = "Survival Proportion", col=1:2, xlim=c(0, 3000))
+curve(lnorm_19_trip_time_SC, lty=2, add=TRUE)
+curve(lnorm_20_trip_time_SC, col=2, lty=2, add=TRUE)
+
+plot(survfit(trip_time_year_coxPH, newdata = data.frame(year = c("2019" , "2020"))), xlab = "Seconds", ylab = "Survival Proportion", col=1:2, xlim=c(0, 3000))
+curve(wei_19_trip_time_SC, lty=2, add=TRUE)
+curve(wei_20_trip_time_SC, col=2, lty=2, add=TRUE)
 ```
 
+## Complex Model - Year AND Zone
+Question: If trips got FASTER in 2020 relative to 2019, did some zones speed up more? did any zones get actually slower? Can we discern a pattern to these changes in space?
+
+Takes a long time to run; be careful before running. There's lots of output that we're gonna have to parse through and kind of summarize in a way. One thing I thought about was maybe testing another variable like distance and seeing if some of the covariates become insignificant. This would tell us if there is another explanatory variable confounding with simply sorting out PULocationID's.
+
+```{r}
+## Weibull
+trip_time_yearzone_weibull = survreg(formula = Surv(trip_time) ~ year*PULocationID, dist = "weibull", data = rides_h1_top_origins)
+trip_time_yearzone_weibull %>% summary()
+```
+
+```{r}
+#2020 trip duration in mins
+Duration_2020 <-
+  rides_20_h1clean%>%
+  mutate(Pickup = tpep_pickup_datetime,Dropoff = tpep_dropoff_datetime) %>%
+  select(-c(tpep_pickup_datetime, tpep_dropoff_datetime)) %>%
+  mutate(Duration = difftime(Dropoff, Pickup, units = "mins"))
+
+#2019 trip duration in mins
+Duration_2019h1 <-
+  rides_19_h1_sample%>%
+  mutate(Pickup = tpep_pickup_datetime,Dropoff = tpep_dropoff_datetime) %>%
+  select(-c(tpep_pickup_datetime, tpep_dropoff_datetime)) %>%
+  mutate(Duration = difftime(Dropoff, Pickup, units = "mins"))
+
+Duration_2019h2 <-
+  rides_19_h2_sample%>%
+  mutate(Pickup = tpep_pickup_datetime,Dropoff = tpep_dropoff_datetime) %>%
+  select(-c(tpep_pickup_datetime, tpep_dropoff_datetime)) %>%
+  mutate(Duration = difftime(Dropoff, Pickup, units = "mins"))
+```
+
+```{r}
+sample_2020 <- Duration_2020 %>%
+	sample_n(size = 10000) 
+
+sample_2019h1 <- Duration_2019h1 %>%
+	sample_n(size = 10000) 
+
+sample_2019h2 <- Duration_2019h2 %>%
+	sample_n(size = 10000) 
+```
+
+```{r}
+#weekly trip duration mean
+weeklyAvg20 <-
+  sample_2020 %>%
+  group_by(week) %>%
+  mutate(weeklyAvg = mean(Duration))
+
+weeklyAvg19h1 <-
+  sample_2019h1 %>%
+  group_by(week) %>%
+  mutate(weeklyAvg = mean(Duration))
+```
+
+```{r}
+#trip duration by week in 2020 vs 2019
+ggplot() +
+	geom_line(data = weeklyAvg20, mapping = aes(x = week, y = weeklyAvg, color="2020")) + 
+	geom_line(data = weeklyAvg19h1, mapping = aes(x = week, y = weeklyAvg, color="2019")) + ylab("Weekly Avg. Trip Time (Min)")
+```
+
+```{r}
+KM2020 = survfit( Surv(Duration) ~ month , data=sample_2020, )
+KM2019 = survfit( Surv(Duration) ~ month , data=sample_2019h1)
+
+plot(KM2019, xlim=c(0,6), ylim=c(0.55,1), col=1:6)
+plot(KM2020, xlim=c(0,6), ylim=c(0.55,1), col=1:6)
+```
+
+```{r}
+#lm to see the relationship between distance and duration in 2019 vs 2020
+lm( Duration ~ trip_distance, data=sample_2020)
+lm( Duration ~ trip_distance, data=sample_2019h1)
+```
+
+# ```{r}
+# #IGNORE THIS
+# #trip duration mean by distance
+# dur_dist_20 <-
+#   sample_2020 %>%
+#   group_by(trip_distance) %>%
+#   mutate(mean_dur = mean(Duration))
+# 
+# dur_dist_19h1 <-
+#   sample_2019h1 %>%
+#   group_by(trip_distance) %>%
+#   mutate(mean_dur = mean(Duration))
+# 
+# # trip distance and duration
+# ggplot() +
+# 	geom_line(data = dur_dist_20, mapping = aes(x = trip_distance, y = mean_dur, color="2020")) + 
+# 	geom_line(data = dur_dist_19h1, mapping = aes(x = trip_distance, y = mean_dur, color="2019"))
+# ```
